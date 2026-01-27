@@ -10,6 +10,7 @@ on:
 jobs:
   sync:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
 
     permissions:
       contents: write
@@ -28,13 +29,18 @@ jobs:
 
       - name: Run sync
         run: python main.py sync --verbose
+        timeout-minutes: 20
+
+      - name: Show database status
+        if: always()
+        run: python main.py status || echo "Status check failed"
 
       - name: Commit and push changes
         run: |
           git config --local user.email "github-actions[bot]@users.noreply.github.com"
           git config --local user.name "github-actions[bot]"
           git add data/materials.db
-          git diff --staged --quiet || git commit -m "chore: sync materials from NIST ISODB
+          git diff --staged --quiet || git commit -m "chore: sync NIST ISODB data
 
           Automated weekly sync via GitHub Actions"
           git push
