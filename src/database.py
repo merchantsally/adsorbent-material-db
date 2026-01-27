@@ -407,3 +407,156 @@ def delete_isotherm_data_points(filename: str, db_path: Path = DEFAULT_DB_PATH) 
     cursor.execute("DELETE FROM isotherm_data_points WHERE isotherm_filename = ?", (filename,))
     conn.commit()
     conn.close()
+
+
+# =============================================================================
+# Individual isotherm data point fetching support
+# =============================================================================
+
+def migrate_add_data_fetched_column(db_path: Path = DEFAULT_DB_PATH) -> None:
+    """Add data_fetched tracking columns to isotherms table if not exists."""
+    conn = get_connection(db_path)
+    cursor = conn.cursor()
+
+    # Check if column exists
+    cursor.execute("PRAGMA table_info(isotherms)")
+    columns = [row[1] for row in cursor.fetchall()]
+
+    if "data_fetched" not in columns:
+        cursor.execute("ALTER TABLE isotherms ADD COLUMN data_fetched INTEGER DEFAULT 0")
+        cursor.execute("ALTER TABLE isotherms ADD COLUMN data_fetched_at TEXT")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_isotherms_data_fetched ON isotherms(data_fetched)")
+        print("Added data_fetched tracking columns to isotherms table")
+
+    # Create failed fetches table
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS failed_isotherm_fetches (
+            filename TEXT PRIMARY KEY,
+            failure_count INTEGER DEFAULT 1,
+            last_error TEXT,
+            last_attempt_at TEXT,
+            FOREIGN KEY (filename) REFERENCES isotherms(filename)
+        )
+    """)
+
+    conn.commit()
+    conn.close()
+
+
+def get_unfetched_isotherms(limit: Optional[int] = None, db_path: Path = DEFAULT_DB_PATH) -> list[str]:
+    """Get filenames of isotherms that haven't had their data points fetched yet.
+
+    Args:
+        limit: Maximum number of filenames to return (None for all)
+
+    Returns:
+        List of isotherm filenames
+    """
+    conn = get_connection(db_path)
+    cursor = conn.cursor()
+
+    query = "SELECT filename FROM isotherms WHERE data_fetched = 0 OR data_fetched IS NULL ORDER BY filename"
+    if limit:
+        query += f" LIMIT {limit}"
+
+    cursor.execute(query)
+    filenames = [row[0] for row in cursor.fetchall()]
+    conn.close()
+
+    return filenames
+
+
+def mark_isotherms_data_fetched(filenames: list[str], db_path: Path = DEFAULT_DB_PATH) -> None:
+    """Mark isotherms as having their data points fetched."""
+    if not filenames:
+        return
+
+    conn = get_connection(db_path)
+    cursor = conn.cursor()
+    timestamp = datetime.utcnow().isoformat()
+
+    for filename in filenames:
+        cursor.execute("""
+            UPDATE isotherms
+            SET data_fetched = 1, data_fetched_at = ?
+            WHERE filename = ?
+        """, (timestamp, filename))
+
+    conn.commit()
+    conn.close()
+
+
+def record_failed_isotherm_fetch(filename: str, error: str, db_path: Path = DEFAULT_DB_PATH) -> None:
+    """Record a failed isotherm fetch attempt."""
+    conn = get_connection(db_path)
+    cursor = conn.cursor()
+    timestamp = datetime.utcnow().isoformat()
+
+    cursor.execute("""
+        INSERT INTO failed_isotherm_fetches (filename, failure_count, last_error, last_attempt_at)
+        VALUES (?, 1, ?, ?)
+        ON CONFLICT(filename) DO UPDATE SET
+            failure_count = failure_count + 1,
+            last_error = excluded.last_error,
+            last_attempt_at = excluded.last_attempt_at
+    """, (filename, error, timestamp))
+
+    conn.commit()
+    conn.close()
+
+
+def get_data_fetch_progress(db_path: Path = DEFAULT_DB_PATH) -> dict:
+    """Get progress statistics for data point fetching."""
+    conn = get_connection(db_path)
+    cursor = conn.cursor()
+
+    cursor.execute("SELECT COUNT(*) FROM isotherms WHERE data_fetched = 1")
+    fetched = cursor.fetchone()[0]
+
+    cursor.execute("SELECT COUNT(*) FROM isotherms")
+    total = cursor.fetchone()[0]
+
+    cursor.execute("SELECT COUNT(*) FROM failed_isotherm_fetches")
+    failed = cursor.fetchone()[0]
+
+    cursor.execute("SELECT COUNT(*) FROM isotherm_data_points")
+    total_points = cursor.fetchone()[0]
+
+    conn.close()
+
+    return {
+        "fetched": fetched,
+        "total": total,
+        "remaining": total - fetched,
+        "failed": failed,
+        "total_data_points": total_points,
+        "percent_complete": (fetched / total * 100) if total > 0 else 0,
+    }
+
+
+def update_isotherm_metadata(metadata_list: list[dict], db_path: Path = DEFAULT_DB_PATH) -> None:
+    """Update isotherms with unit metadata from individual API fetches.
+
+    Args:
+        metadata_list: List of dicts with filename, pressure_units, adsorption_units
+        db_path: Database path
+    """
+    if not metadata_list:
+        return
+
+    conn = get_connection(db_path)
+    cursor = conn.cursor()
+
+    for metadata in metadata_list:
+        cursor.execute("""
+            UPDATE isotherms
+            SET pressure_units = ?, adsorption_units = ?
+            WHERE filename = ?
+        """, (
+            metadata.get("pressure_units"),
+            metadata.get("adsorption_units"),
+            metadata["filename"],
+        ))
+
+    conn.commit()
+    conn.close()

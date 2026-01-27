@@ -2,7 +2,7 @@
 
 import json
 import time
-from typing import Optional
+from typing import Optional, Callable
 
 import requests
 
@@ -11,6 +11,7 @@ from src.utils import rate_limited_get, calculate_checksum
 # NIST ISODB API endpoints
 MATERIALS_API_URL = "https://adsorption.nist.gov/isodb/api/materials.json"
 ISOTHERMS_API_URL = "https://adsorption.nist.gov/isodb/api/isotherms.json"
+ISOTHERM_INDIVIDUAL_API_URL = "https://adsorption.nist.gov/isodb/api/isotherm/{}.json"
 GASES_API_URL = "https://adsorption.nist.gov/isodb/api/gases.json"
 BIBLIO_API_URL = "https://adsorption.nist.gov/isodb/api/biblio.json"
 
@@ -152,6 +153,79 @@ def fetch_isotherms(max_retries: int = 3, retry_delay: float = 5.0) -> tuple[lis
 
     # This should never be reached due to the raise above, but satisfies type checker
     raise RuntimeError("Failed to fetch isotherms")
+
+
+def fetch_single_isotherm(filename: str, max_retries: int = 3, retry_delay: float = 5.0) -> Optional[dict]:
+    """Fetch a single isotherm with all data points from NIST API.
+
+    Args:
+        filename: The isotherm filename (primary key)
+        max_retries: Number of retry attempts
+        retry_delay: Delay between retries in seconds
+
+    Returns:
+        Raw isotherm dict with isotherm_data array, or None if failed
+    """
+    url = ISOTHERM_INDIVIDUAL_API_URL.format(filename)
+
+    for attempt in range(max_retries):
+        try:
+            response = rate_limited_get(url)
+            raw_isotherm = response.json()
+            return raw_isotherm
+        except requests.RequestException as e:
+            if attempt < max_retries - 1:
+                time.sleep(retry_delay)
+            else:
+                print(f"Failed to fetch {filename}: {e}")
+                return None
+
+    return None
+
+
+def batch_fetch_isotherm_data_points(
+    filenames: list[str],
+    progress_callback: Optional[callable] = None
+) -> tuple[list[dict], list[dict], list[tuple[str, str]]]:
+    """Fetch data points for a batch of isotherms.
+
+    Args:
+        filenames: List of isotherm filenames to fetch
+        progress_callback: Optional callback function(current, total)
+
+    Returns:
+        Tuple of (all_data_points, isotherm_metadata, failed_isotherms)
+        - all_data_points: List of data point dicts ready for database insertion
+        - isotherm_metadata: List of dicts with filename, pressure_units, adsorption_units
+        - failed_isotherms: List of (filename, error_message) tuples
+    """
+    all_data_points = []
+    isotherm_metadata = []
+    failed_isotherms = []
+
+    total = len(filenames)
+
+    for i, filename in enumerate(filenames):
+        if progress_callback:
+            progress_callback(i + 1, total)
+
+        raw_isotherm = fetch_single_isotherm(filename)
+
+        if raw_isotherm:
+            data_points = extract_data_points(raw_isotherm)
+            all_data_points.extend(data_points)
+
+            # Extract unit metadata from raw isotherm
+            metadata = {
+                "filename": filename,
+                "pressure_units": raw_isotherm.get("pressureUnits"),
+                "adsorption_units": raw_isotherm.get("adsorptionUnits"),
+            }
+            isotherm_metadata.append(metadata)
+        else:
+            failed_isotherms.append((filename, "API request failed"))
+
+    return all_data_points, isotherm_metadata, failed_isotherms
 
 
 def normalize_isotherm(raw: dict) -> dict:

@@ -315,6 +315,127 @@ def print_sync_summary(result: SyncResult, verbose: bool = False) -> None:
     print(f"{'='*60}")
 
 
+def sync_data_points(
+    limit: Optional[int] = None,
+    resume: bool = True,
+    force_refetch: bool = False,
+    batch_size: int = 1000,
+    db_path: Path = database.DEFAULT_DB_PATH,
+) -> dict:
+    """Fetch data points for isotherms that don't have them yet.
+
+    Args:
+        limit: Maximum number of isotherms to process (None for all)
+        resume: If True, skip isotherms already fetched
+        force_refetch: If True, re-fetch all isotherms even if already fetched
+        batch_size: Checkpoint progress every N isotherms
+        db_path: Database path
+
+    Returns:
+        Dict with statistics: processed, succeeded, failed, data_points_inserted
+    """
+    from src.scraper import batch_fetch_isotherm_data_points
+
+    # Initialize database and run migration
+    database.init_db(db_path)
+    database.migrate_add_data_fetched_column(db_path)
+
+    # Get initial progress
+    initial_progress = database.get_data_fetch_progress(db_path)
+    print(f"\nData fetch progress: {initial_progress['fetched']:,}/{initial_progress['total']:,} "
+          f"({initial_progress['percent_complete']:.1f}%)")
+    print(f"Total data points: {initial_progress['total_data_points']:,}")
+
+    # Get list of isotherms to fetch
+    if force_refetch:
+        # Re-fetch all isotherms
+        conn = database.get_connection(db_path)
+        cursor = conn.cursor()
+        cursor.execute("UPDATE isotherms SET data_fetched = 0")
+        conn.commit()
+        conn.close()
+        print("Force refetch enabled - resetting all isotherms")
+
+    filenames = database.get_unfetched_isotherms(limit, db_path)
+
+    if not filenames:
+        print("\nAll isotherms already have data points fetched!")
+        return {
+            "processed": 0,
+            "succeeded": 0,
+            "failed": 0,
+            "data_points_inserted": 0,
+        }
+
+    print(f"\nFetching data points for {len(filenames):,} isotherms...")
+    print(f"Estimated time: ~{len(filenames) * 0.1 / 60:.1f} minutes")
+
+    stats = {
+        "processed": 0,
+        "succeeded": 0,
+        "failed": 0,
+        "data_points_inserted": 0,
+    }
+
+    # Process in batches with checkpointing
+    for batch_start in range(0, len(filenames), batch_size):
+        batch_end = min(batch_start + batch_size, len(filenames))
+        batch_filenames = filenames[batch_start:batch_end]
+
+        print(f"\nProcessing batch {batch_start//batch_size + 1} "
+              f"({batch_start + 1}-{batch_end} of {len(filenames)})")
+
+        def progress_callback(current, total):
+            if current % 100 == 0:
+                print(f"  Progress: {current}/{total} ({current/total*100:.1f}%)")
+
+        # Fetch data points for this batch
+        data_points, metadata, failed = batch_fetch_isotherm_data_points(
+            batch_filenames,
+            progress_callback
+        )
+
+        # Insert data points
+        if data_points:
+            database.bulk_upsert("isotherm_data_points", data_points, db_path)
+            stats["data_points_inserted"] += len(data_points)
+
+        # Update isotherm metadata with unit information
+        if metadata:
+            database.update_isotherm_metadata(metadata, db_path)
+
+        # Mark successful isotherms as fetched
+        succeeded_filenames = [f for f in batch_filenames
+                               if not any(failed_f == f for failed_f, _ in failed)]
+        database.mark_isotherms_data_fetched(succeeded_filenames, db_path)
+
+        # Record failures
+        for filename, error in failed:
+            database.record_failed_isotherm_fetch(filename, error, db_path)
+
+        stats["processed"] += len(batch_filenames)
+        stats["succeeded"] += len(succeeded_filenames)
+        stats["failed"] += len(failed)
+
+        print(f"  Batch complete: {len(succeeded_filenames)} succeeded, {len(failed)} failed")
+        print(f"  Inserted {len(data_points):,} data points")
+
+    # Final progress report
+    final_progress = database.get_data_fetch_progress(db_path)
+    print(f"\n{'='*60}")
+    print(f"Data fetch complete!")
+    print(f"  Processed: {stats['processed']:,}")
+    print(f"  Succeeded: {stats['succeeded']:,}")
+    print(f"  Failed: {stats['failed']:,}")
+    print(f"  Data points inserted: {stats['data_points_inserted']:,}")
+    print(f"\nOverall progress: {final_progress['fetched']:,}/{final_progress['total']:,} "
+          f"({final_progress['percent_complete']:.1f}%)")
+    print(f"Total data points: {final_progress['total_data_points']:,}")
+    print(f"{'='*60}")
+
+    return stats
+
+
 # Legacy compatibility - keep old function signature working
 def print_changes_summary(changes, verbose: bool = False) -> None:
     """Legacy function for backward compatibility."""
