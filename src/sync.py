@@ -1,21 +1,26 @@
 """Sync engine for detecting and applying changes from NIST ISODB."""
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Callable
 
 from src import database
-from src.scraper import fetch_materials, fetch_isotherms_count, enrich_with_isotherm_counts
+from src.scraper import (
+    fetch_materials, fetch_isotherms_count, enrich_with_isotherm_counts,
+    fetch_isotherms, fetch_gases, fetch_bibliography
+)
 from src.utils import backup_database
 
 
 @dataclass
-class SyncChanges:
-    """Summary of changes detected during sync."""
-    new: list[dict]
-    modified: list[tuple[dict, dict]]  # (new_material, old_material)
-    deleted: list[dict]
+class TableChanges:
+    """Summary of changes detected for a single table."""
+    table_name: str
+    id_column: str
+    new: list[dict] = field(default_factory=list)
+    modified: list[dict] = field(default_factory=list)
+    deleted: list[str] = field(default_factory=list)
 
     @property
     def total_changes(self) -> int:
@@ -30,64 +35,67 @@ class SyncChanges:
 class SyncResult:
     """Result of a sync operation."""
     success: bool
-    changes: SyncChanges
+    table_changes: dict[str, TableChanges] = field(default_factory=dict)
     backup_path: Optional[Path] = None
     error: Optional[str] = None
 
+    @property
+    def total_changes(self) -> int:
+        return sum(tc.total_changes for tc in self.table_changes.values())
 
-def detect_changes(
-    fetched_materials: list[dict],
+
+def detect_table_changes(
+    fetched_records: list[dict],
+    table: str,
+    id_column: str,
     db_path: Path = database.DEFAULT_DB_PATH,
-) -> SyncChanges:
-    """Compare fetched materials against the database and detect changes."""
+) -> TableChanges:
+    """Compare fetched records against a database table and detect changes."""
     # Get current checksums from database
-    local_checksums = database.get_all_checksums(db_path)
-    local_materials = {m["material_id"]: m for m in database.get_all_materials(db_path)}
+    local_checksums = database.get_table_checksums(table, id_column, db_path)
 
-    # Build lookup for fetched materials
-    fetched_by_id = {m["material_id"]: m for m in fetched_materials}
+    # Build lookup for fetched records
+    fetched_by_id = {r[id_column]: r for r in fetched_records}
 
-    new_materials = []
-    modified_materials = []
-    deleted_materials = []
+    new_records = []
+    modified_records = []
+    deleted_ids = []
 
-    # Check for new and modified materials
-    for material_id, material in fetched_by_id.items():
-        if material_id not in local_checksums:
-            new_materials.append(material)
-        elif material["checksum"] != local_checksums[material_id]:
-            old_material = local_materials[material_id]
-            modified_materials.append((material, old_material))
+    # Check for new and modified records
+    for record_id, record in fetched_by_id.items():
+        if record_id not in local_checksums:
+            new_records.append(record)
+        elif record["checksum"] != local_checksums[record_id]:
+            modified_records.append(record)
 
-    # Check for deleted materials
-    for material_id in local_checksums:
-        if material_id not in fetched_by_id:
-            deleted_materials.append(local_materials[material_id])
+    # Check for deleted records
+    for record_id in local_checksums:
+        if record_id not in fetched_by_id:
+            deleted_ids.append(record_id)
 
-    return SyncChanges(
-        new=new_materials,
-        modified=modified_materials,
-        deleted=deleted_materials,
+    return TableChanges(
+        table_name=table,
+        id_column=id_column,
+        new=new_records,
+        modified=modified_records,
+        deleted=deleted_ids,
     )
 
 
 def check_suspicious_changes(
-    changes: SyncChanges,
+    changes: TableChanges,
     current_count: int,
     deletion_threshold: float = 0.1,
 ) -> Optional[str]:
-    """Check for suspicious changes that require confirmation.
-
-    Returns a warning message if changes are suspicious, None otherwise.
-    """
+    """Check for suspicious changes that require confirmation."""
     if current_count == 0:
-        return None  # First sync, nothing suspicious
+        return None
 
     deletion_ratio = len(changes.deleted) / current_count
 
     if deletion_ratio > deletion_threshold:
         return (
-            f"Warning: {len(changes.deleted)} materials ({deletion_ratio:.1%}) "
+            f"Warning: {len(changes.deleted)} {changes.table_name} ({deletion_ratio:.1%}) "
             f"would be deleted. This exceeds the {deletion_threshold:.0%} threshold. "
             f"Use --force to apply these changes."
         )
@@ -95,31 +103,54 @@ def check_suspicious_changes(
     return None
 
 
-def apply_changes(
-    changes: SyncChanges,
+def apply_table_changes(
+    changes: TableChanges,
     db_path: Path = database.DEFAULT_DB_PATH,
 ) -> None:
-    """Apply detected changes to the database."""
-    # Insert new materials
-    for material in changes.new:
-        database.insert_material(material, db_path)
+    """Apply detected changes to a database table."""
+    # Add local_updated timestamp to new and modified records
+    timestamp = datetime.utcnow().isoformat()
 
-    # Update modified materials
-    for new_material, old_material in changes.modified:
-        database.update_material(new_material, old_material, db_path)
+    for record in changes.new:
+        record["local_updated"] = timestamp
 
-    # Delete removed materials
-    for material in changes.deleted:
-        database.delete_material(material["material_id"], material, db_path)
+    for record in changes.modified:
+        record["local_updated"] = timestamp
 
-    # Update sync timestamp
-    database.set_last_sync_time(datetime.utcnow().isoformat(), db_path)
+    # Bulk operations
+    database.bulk_upsert(changes.table_name, changes.new + changes.modified, db_path)
+    database.bulk_delete(changes.table_name, changes.id_column, changes.deleted, db_path)
+
+
+def sync_table(
+    table: str,
+    id_column: str,
+    fetch_func: Callable[[], list[dict]],
+    db_path: Path,
+    force: bool = False,
+) -> tuple[TableChanges, Optional[str]]:
+    """Sync a single table from NIST API."""
+    print(f"\nFetching {table}...")
+    records = fetch_func()
+    print(f"  Fetched {len(records)} {table}")
+
+    changes = detect_table_changes(records, table, id_column, db_path)
+    print(f"  Changes: {len(changes.new)} new, {len(changes.modified)} modified, {len(changes.deleted)} deleted")
+
+    # Check for suspicious changes
+    current_count = database.get_table_count(table, db_path)
+    warning = check_suspicious_changes(changes, current_count)
+
+    if warning and not force:
+        return changes, warning
+
+    return changes, None
 
 
 def sync(
     dry_run: bool = False,
     force: bool = False,
-    skip_isotherm_counts: bool = False,
+    tables: Optional[list[str]] = None,
     db_path: Path = database.DEFAULT_DB_PATH,
 ) -> SyncResult:
     """Perform a full sync from NIST ISODB.
@@ -127,7 +158,7 @@ def sync(
     Args:
         dry_run: If True, detect changes but don't apply them.
         force: If True, apply changes even if they look suspicious.
-        skip_isotherm_counts: If True, skip fetching isotherm counts (faster).
+        tables: List of tables to sync. Default: all tables.
         db_path: Path to the SQLite database.
 
     Returns:
@@ -136,89 +167,128 @@ def sync(
     # Initialize database if needed
     database.init_db(db_path)
 
-    # Fetch materials from NIST
-    print("Fetching materials from NIST ISODB...")
+    # Define all syncable tables (materials handled specially)
+    all_tables = {
+        "materials": ("material_id", None),  # Special handling
+        "isotherms": ("filename", fetch_isotherms),
+        "gases": ("inchikey", fetch_gases),
+        "bibliography": ("doi", fetch_bibliography),
+    }
+
+    # Filter tables if specified
+    if tables:
+        tables_to_sync = {k: v for k, v in all_tables.items() if k in tables}
+    else:
+        tables_to_sync = all_tables
+
+    result = SyncResult(success=True)
+    all_changes: dict[str, TableChanges] = {}
+    warnings = []
+
+    # Sync each table
+    for table_name, (id_column, fetch_func) in tables_to_sync.items():
+        if table_name == "materials" or fetch_func is None:
+            # Materials has special handling for isotherm counts
+            changes, warning = sync_materials_table(db_path, force)
+        else:
+            changes, warning = sync_table(table_name, id_column, fetch_func, db_path, force)
+
+        all_changes[table_name] = changes
+        if warning:
+            warnings.append(warning)
+
+    result.table_changes = all_changes
+
+    # Check for warnings
+    if warnings and not force:
+        result.success = False
+        result.error = "\n".join(warnings)
+        for warning in warnings:
+            print(warning)
+        return result
+
+    # Check if any changes
+    if result.total_changes == 0:
+        print("\nNo changes to apply across all tables.")
+        return result
+
+    if dry_run:
+        print("\nDry run - no changes applied.")
+        return result
+
+    # Create backup before applying changes
+    if db_path.exists():
+        print("\nCreating backup...")
+        result.backup_path = backup_database(db_path)
+        print(f"Backup created: {result.backup_path}")
+
+    # Apply changes to all tables
+    print("\nApplying changes...")
+    for table_name, changes in all_changes.items():
+        if not changes.is_empty:
+            apply_table_changes(changes, db_path)
+            print(f"  Applied {changes.total_changes} changes to {table_name}")
+
+    # Update sync timestamp
+    database.set_last_sync_time(datetime.utcnow().isoformat(), db_path)
+    print("\nSync complete.")
+
+    return result
+
+
+def sync_materials_table(db_path: Path, force: bool) -> tuple[TableChanges, Optional[str]]:
+    """Sync materials table with isotherm count enrichment."""
+    print("\nFetching materials...")
     materials = fetch_materials()
-    print(f"Fetched {len(materials)} materials")
+    print(f"  Fetched {len(materials)} materials")
 
-    # Optionally enrich with isotherm counts
-    if not skip_isotherm_counts:
-        print("Fetching isotherm counts...")
-        counts = fetch_isotherms_count()
-        materials = enrich_with_isotherm_counts(materials, counts)
-        print(f"Enriched with isotherm counts for {len(counts)} materials")
+    print("  Enriching with isotherm counts...")
+    counts = fetch_isotherms_count()
+    materials = enrich_with_isotherm_counts(materials, counts)
+    print(f"  Enriched {len(counts)} materials with isotherm counts")
 
-    # Detect changes
-    print("Detecting changes...")
-    changes = detect_changes(materials, db_path)
-
-    print(f"Changes detected: {len(changes.new)} new, "
-          f"{len(changes.modified)} modified, {len(changes.deleted)} deleted")
-
-    if changes.is_empty:
-        print("No changes to apply.")
-        return SyncResult(success=True, changes=changes)
+    changes = detect_table_changes(materials, "materials", "material_id", db_path)
+    print(f"  Changes: {len(changes.new)} new, {len(changes.modified)} modified, {len(changes.deleted)} deleted")
 
     # Check for suspicious changes
-    current_count = database.get_material_count(db_path)
+    current_count = database.get_table_count("materials", db_path)
     warning = check_suspicious_changes(changes, current_count)
 
     if warning and not force:
-        print(warning)
-        return SyncResult(
-            success=False,
-            changes=changes,
-            error=warning,
-        )
+        return changes, warning
 
-    if dry_run:
-        print("Dry run - no changes applied.")
-        return SyncResult(success=True, changes=changes)
-
-    # Create backup before applying changes
-    backup_path = None
-    if db_path.exists():
-        print("Creating backup...")
-        backup_path = backup_database(db_path)
-        print(f"Backup created: {backup_path}")
-
-    # Apply changes
-    print("Applying changes...")
-    apply_changes(changes, db_path)
-    print("Sync complete.")
-
-    return SyncResult(
-        success=True,
-        changes=changes,
-        backup_path=backup_path,
-    )
+    return changes, None
 
 
-def print_changes_summary(changes: SyncChanges, verbose: bool = False) -> None:
-    """Print a human-readable summary of changes."""
-    print(f"\n{'='*50}")
-    print("SYNC CHANGES SUMMARY")
-    print(f"{'='*50}")
+def print_sync_summary(result: SyncResult, verbose: bool = False) -> None:
+    """Print a human-readable summary of sync results."""
+    print(f"\n{'='*60}")
+    print("SYNC SUMMARY")
+    print(f"{'='*60}")
 
-    print(f"\nNew materials: {len(changes.new)}")
-    if verbose and changes.new:
-        for m in changes.new[:10]:
-            print(f"  + {m['name']} ({m['material_id']})")
-        if len(changes.new) > 10:
-            print(f"  ... and {len(changes.new) - 10} more")
+    for table_name, changes in result.table_changes.items():
+        print(f"\n{table_name.upper()}")
+        print(f"  New: {len(changes.new)}")
+        print(f"  Modified: {len(changes.modified)}")
+        print(f"  Deleted: {len(changes.deleted)}")
 
-    print(f"\nModified materials: {len(changes.modified)}")
-    if verbose and changes.modified:
-        for new_m, old_m in changes.modified[:10]:
-            print(f"  ~ {new_m['name']} ({new_m['material_id']})")
-        if len(changes.modified) > 10:
-            print(f"  ... and {len(changes.modified) - 10} more")
+        if verbose and changes.new:
+            print(f"  New records:")
+            for r in changes.new[:5]:
+                id_val = r.get(changes.id_column, "unknown")
+                name = r.get("name", r.get("title", id_val))
+                print(f"    + {name}")
+            if len(changes.new) > 5:
+                print(f"    ... and {len(changes.new) - 5} more")
 
-    print(f"\nDeleted materials: {len(changes.deleted)}")
-    if verbose and changes.deleted:
-        for m in changes.deleted[:10]:
-            print(f"  - {m['name']} ({m['material_id']})")
-        if len(changes.deleted) > 10:
-            print(f"  ... and {len(changes.deleted) - 10} more")
+    print(f"\n{'='*60}")
+    print(f"Total changes: {result.total_changes}")
+    print(f"{'='*60}")
 
-    print(f"\n{'='*50}")
+
+# Legacy compatibility - keep old function signature working
+def print_changes_summary(changes, verbose: bool = False) -> None:
+    """Legacy function for backward compatibility."""
+    if isinstance(changes, TableChanges):
+        print(f"\n{changes.table_name}: {len(changes.new)} new, "
+              f"{len(changes.modified)} modified, {len(changes.deleted)} deleted")

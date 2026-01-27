@@ -58,6 +58,51 @@ def init_db(db_path: Path = DEFAULT_DB_PATH) -> None:
         )
     """)
 
+    # Isotherms table
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS isotherms (
+            filename TEXT PRIMARY KEY,
+            doi TEXT,
+            adsorbent_id TEXT,
+            adsorbates TEXT,
+            category TEXT,
+            temperature REAL,
+            tabular_data INTEGER,
+            isotherm_type TEXT,
+            local_updated TEXT NOT NULL,
+            checksum TEXT NOT NULL
+        )
+    """)
+
+    # Gases (adsorbates) table
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS gases (
+            inchikey TEXT PRIMARY KEY,
+            name TEXT NOT NULL,
+            synonyms TEXT,
+            local_updated TEXT NOT NULL,
+            checksum TEXT NOT NULL
+        )
+    """)
+
+    # Bibliography table
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS bibliography (
+            doi TEXT PRIMARY KEY,
+            title TEXT,
+            journal TEXT,
+            year INTEGER,
+            authors TEXT,
+            categories TEXT,
+            adsorbents TEXT,
+            adsorbates TEXT,
+            temperatures TEXT,
+            pressures TEXT,
+            local_updated TEXT NOT NULL,
+            checksum TEXT NOT NULL
+        )
+    """)
+
     conn.commit()
     conn.close()
 
@@ -236,3 +281,94 @@ def get_recent_audit_logs(limit: int = 50, db_path: Path = DEFAULT_DB_PATH) -> l
     rows = cursor.fetchall()
     conn.close()
     return [dict(row) for row in rows]
+
+
+# =============================================================================
+# Generic table operations for isotherms, gases, bibliography
+# =============================================================================
+
+def get_table_checksums(table: str, id_column: str, db_path: Path = DEFAULT_DB_PATH) -> dict[str, str]:
+    """Get a mapping of id -> checksum for a table."""
+    conn = get_connection(db_path)
+    cursor = conn.cursor()
+    cursor.execute(f"SELECT {id_column}, checksum FROM {table}")
+    rows = cursor.fetchall()
+    conn.close()
+    return {row[id_column]: row["checksum"] for row in rows}
+
+
+def get_all_from_table(table: str, db_path: Path = DEFAULT_DB_PATH) -> list[dict]:
+    """Get all records from a table."""
+    conn = get_connection(db_path)
+    cursor = conn.cursor()
+    cursor.execute(f"SELECT * FROM {table}")
+    rows = cursor.fetchall()
+    conn.close()
+    return [dict(row) for row in rows]
+
+
+def get_table_count(table: str, db_path: Path = DEFAULT_DB_PATH) -> int:
+    """Get the total number of records in a table."""
+    conn = get_connection(db_path)
+    cursor = conn.cursor()
+    cursor.execute(f"SELECT COUNT(*) FROM {table}")
+    count = cursor.fetchone()[0]
+    conn.close()
+    return count
+
+
+def upsert_record(table: str, record: dict, db_path: Path = DEFAULT_DB_PATH) -> None:
+    """Insert or replace a record in a table."""
+    conn = get_connection(db_path)
+    cursor = conn.cursor()
+
+    columns = ", ".join(record.keys())
+    placeholders = ", ".join(["?"] * len(record))
+    values = list(record.values())
+
+    cursor.execute(f"INSERT OR REPLACE INTO {table} ({columns}) VALUES ({placeholders})", values)
+    conn.commit()
+    conn.close()
+
+
+def delete_record(table: str, id_column: str, record_id: str, db_path: Path = DEFAULT_DB_PATH) -> None:
+    """Delete a record from a table."""
+    conn = get_connection(db_path)
+    cursor = conn.cursor()
+    cursor.execute(f"DELETE FROM {table} WHERE {id_column} = ?", (record_id,))
+    conn.commit()
+    conn.close()
+
+
+def bulk_upsert(table: str, records: list[dict], db_path: Path = DEFAULT_DB_PATH) -> None:
+    """Bulk insert or replace records in a table."""
+    if not records:
+        return
+
+    conn = get_connection(db_path)
+    cursor = conn.cursor()
+
+    columns = ", ".join(records[0].keys())
+    placeholders = ", ".join(["?"] * len(records[0]))
+
+    for record in records:
+        values = list(record.values())
+        cursor.execute(f"INSERT OR REPLACE INTO {table} ({columns}) VALUES ({placeholders})", values)
+
+    conn.commit()
+    conn.close()
+
+
+def bulk_delete(table: str, id_column: str, record_ids: list[str], db_path: Path = DEFAULT_DB_PATH) -> None:
+    """Bulk delete records from a table."""
+    if not record_ids:
+        return
+
+    conn = get_connection(db_path)
+    cursor = conn.cursor()
+
+    for record_id in record_ids:
+        cursor.execute(f"DELETE FROM {table} WHERE {id_column} = ?", (record_id,))
+
+    conn.commit()
+    conn.close()

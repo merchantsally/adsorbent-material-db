@@ -6,20 +6,25 @@ import sys
 from pathlib import Path
 
 from src import database
-from src.sync import sync, print_changes_summary
+from src.sync import sync, print_sync_summary
 from src.utils import backup_database, restore_database, list_backups, format_timestamp
 
 
 def cmd_sync(args):
     """Execute the sync command."""
+    # Parse tables argument
+    tables = None
+    if args.tables:
+        tables = [t.strip() for t in args.tables.split(",")]
+
     result = sync(
         dry_run=args.dry_run,
         force=args.force,
-        skip_isotherm_counts=args.skip_isotherms,
+        tables=tables,
     )
 
     if args.verbose or args.dry_run:
-        print_changes_summary(result.changes, verbose=True)
+        print_sync_summary(result, verbose=True)
 
     if not result.success:
         print(f"\nSync failed: {result.error}", file=sys.stderr)
@@ -36,12 +41,26 @@ def cmd_status(args):
         print("Database not initialized. Run 'sync' to create it.")
         return 0
 
-    count = database.get_material_count(db_path)
     last_sync = database.get_last_sync_time(db_path)
 
     print(f"Database: {db_path}")
-    print(f"Materials: {count}")
     print(f"Last sync: {format_timestamp(last_sync)}")
+    print()
+
+    # Show counts for all tables
+    tables = [
+        ("materials", "Materials"),
+        ("isotherms", "Isotherms"),
+        ("gases", "Gases (Adsorbates)"),
+        ("bibliography", "Bibliography"),
+    ]
+
+    for table, label in tables:
+        try:
+            count = database.get_table_count(table, db_path)
+            print(f"{label}: {count:,}")
+        except Exception:
+            print(f"{label}: (table not created)")
 
     # Show recent audit log if verbose
     if args.verbose:
@@ -104,7 +123,7 @@ def main():
     subparsers = parser.add_subparsers(dest="command", help="Available commands")
 
     # sync command
-    sync_parser = subparsers.add_parser("sync", help="Sync materials from NIST ISODB")
+    sync_parser = subparsers.add_parser("sync", help="Sync all data from NIST ISODB")
     sync_parser.add_argument(
         "--dry-run",
         action="store_true",
@@ -116,9 +135,9 @@ def main():
         help="Apply changes even if they look suspicious",
     )
     sync_parser.add_argument(
-        "--skip-isotherms",
-        action="store_true",
-        help="Skip fetching isotherm counts (faster)",
+        "--tables",
+        type=str,
+        help="Comma-separated list of tables to sync (materials,isotherms,gases,bibliography)",
     )
     sync_parser.add_argument(
         "-v", "--verbose",
