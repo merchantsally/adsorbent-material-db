@@ -106,13 +106,43 @@ def enrich_with_isotherm_counts(materials: list[dict], counts: dict[str, int]) -
 # Isotherms fetching
 # =============================================================================
 
-def fetch_isotherms(max_retries: int = 3, retry_delay: float = 5.0) -> list[dict]:
-    """Fetch all isotherms from the NIST ISODB API."""
+def extract_data_points(raw_isotherm: dict) -> list[dict]:
+    """Extract data points from a raw isotherm record."""
+    filename = raw_isotherm.get("filename", "")
+    isotherm_data = raw_isotherm.get("isotherm_data", [])
+
+    data_points = []
+    for point in isotherm_data:
+        data_point = {
+            "isotherm_filename": filename,
+            "pressure": point.get("pressure"),
+            "total_adsorption": point.get("total_adsorption"),
+            "species_data": json.dumps(point.get("species_data", [])),
+        }
+        data_points.append(data_point)
+
+    return data_points
+
+
+def fetch_isotherms(max_retries: int = 3, retry_delay: float = 5.0) -> tuple[list[dict], list[dict]]:
+    """Fetch all isotherms from the NIST ISODB API.
+
+    Returns:
+        Tuple of (isotherm_metadata_list, data_points_list)
+    """
     for attempt in range(max_retries):
         try:
             response = rate_limited_get(ISOTHERMS_API_URL)
             raw_isotherms = response.json()
-            return [normalize_isotherm(i) for i in raw_isotherms]
+
+            isotherms = []
+            all_data_points = []
+
+            for raw in raw_isotherms:
+                isotherms.append(normalize_isotherm(raw))
+                all_data_points.extend(extract_data_points(raw))
+
+            return isotherms, all_data_points
         except requests.RequestException as e:
             if attempt < max_retries - 1:
                 print(f"Request failed (attempt {attempt + 1}/{max_retries}): {e}")
@@ -120,22 +150,43 @@ def fetch_isotherms(max_retries: int = 3, retry_delay: float = 5.0) -> list[dict
             else:
                 raise RuntimeError(f"Failed to fetch isotherms after {max_retries} attempts: {e}")
 
+    # This should never be reached due to the raise above, but satisfies type checker
+    raise RuntimeError("Failed to fetch isotherms")
+
 
 def normalize_isotherm(raw: dict) -> dict:
-    """Normalize a raw isotherm record from the API."""
+    """Normalize a raw isotherm record from the API - expanded to capture all fields."""
     # Extract adsorbates as JSON string of InChIKeys
     adsorbates_raw = raw.get("adsorbates", [])
     adsorbates = json.dumps([a.get("InChIKey", "") for a in adsorbates_raw])
 
+    # Extract adsorbent info
+    adsorbent = raw.get("adsorbent", {})
+    adsorbent_id = adsorbent.get("hashkey")
+    adsorbent_name = adsorbent.get("name")
+
+    # Count data points
+    isotherm_data = raw.get("isotherm_data", [])
+    data_point_count = len(isotherm_data)
+
     normalized = {
         "filename": raw.get("filename", ""),
         "doi": raw.get("DOI"),
-        "adsorbent_id": raw.get("adsorbent", {}).get("hashkey"),
+        "adsorbent_id": adsorbent_id,
+        "adsorbent_name": adsorbent_name,
         "adsorbates": adsorbates,
         "category": raw.get("category"),
         "temperature": raw.get("temperature"),
         "tabular_data": raw.get("tabular_data", 0),
         "isotherm_type": raw.get("isotherm_type"),
+        "article_source": raw.get("articleSource"),
+        "date": raw.get("date"),
+        "digitizer": raw.get("digitizer"),
+        "adsorption_units": raw.get("adsorptionUnits"),
+        "pressure_units": raw.get("pressureUnits"),
+        "composition_type": raw.get("compositionType"),
+        "concentration_units": raw.get("concentrationUnits"),
+        "data_point_count": data_point_count,
     }
 
     normalized["checksum"] = calculate_checksum(normalized)

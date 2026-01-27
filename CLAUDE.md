@@ -58,7 +58,7 @@ The materials table captures:
 ## Critical Constraints
 
 ### API Rate Limiting
-- **Be respectful of NIST servers** - implement delays between requests (minimum 1 second recommended)
+- **Be respectful of NIST servers** - implement delays between requests (0.1 second delay = 10 requests/second max)
 - The API is public but not intended for aggressive scraping
 - Consider caching responses to minimize redundant calls
 

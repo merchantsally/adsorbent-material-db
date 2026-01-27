@@ -58,20 +58,46 @@ def init_db(db_path: Path = DEFAULT_DB_PATH) -> None:
         )
     """)
 
-    # Isotherms table
+    # Isotherms table - EXPANDED SCHEMA
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS isotherms (
             filename TEXT PRIMARY KEY,
             doi TEXT,
             adsorbent_id TEXT,
+            adsorbent_name TEXT,
             adsorbates TEXT,
             category TEXT,
             temperature REAL,
             tabular_data INTEGER,
             isotherm_type TEXT,
+            article_source TEXT,
+            date TEXT,
+            digitizer TEXT,
+            adsorption_units TEXT,
+            pressure_units TEXT,
+            composition_type TEXT,
+            concentration_units TEXT,
+            data_point_count INTEGER DEFAULT 0,
             local_updated TEXT NOT NULL,
             checksum TEXT NOT NULL
         )
+    """)
+
+    # Isotherm data points table - stores actual measurement data
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS isotherm_data_points (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            isotherm_filename TEXT NOT NULL,
+            pressure REAL NOT NULL,
+            total_adsorption REAL,
+            species_data TEXT,
+            FOREIGN KEY (isotherm_filename) REFERENCES isotherms(filename)
+        )
+    """)
+
+    cursor.execute("""
+        CREATE INDEX IF NOT EXISTS idx_isotherm_data_filename
+        ON isotherm_data_points(isotherm_filename)
     """)
 
     # Gases (adsorbates) table
@@ -370,5 +396,14 @@ def bulk_delete(table: str, id_column: str, record_ids: list[str], db_path: Path
     for record_id in record_ids:
         cursor.execute(f"DELETE FROM {table} WHERE {id_column} = ?", (record_id,))
 
+    conn.commit()
+    conn.close()
+
+
+def delete_isotherm_data_points(filename: str, db_path: Path = DEFAULT_DB_PATH) -> None:
+    """Delete all data points for a specific isotherm."""
+    conn = get_connection(db_path)
+    cursor = conn.cursor()
+    cursor.execute("DELETE FROM isotherm_data_points WHERE isotherm_filename = ?", (filename,))
     conn.commit()
     conn.close()

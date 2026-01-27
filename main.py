@@ -51,6 +51,7 @@ def cmd_status(args):
     tables = [
         ("materials", "Materials"),
         ("isotherms", "Isotherms"),
+        ("isotherm_data_points", "Isotherm Data Points"),
         ("gases", "Gases (Adsorbates)"),
         ("bibliography", "Bibliography"),
     ]

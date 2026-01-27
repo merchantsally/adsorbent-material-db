@@ -12,11 +12,11 @@ import requests
 
 # Rate limiting
 _last_request_time: float = 0
-MIN_REQUEST_INTERVAL = 1.0  # seconds
+MIN_REQUEST_INTERVAL = 0.1  # seconds (10 requests/second max)
 
 
 def rate_limited_get(url: str, timeout: int = 30) -> requests.Response:
-    """Make a GET request with rate limiting (1 second between requests)."""
+    """Make a GET request with rate limiting (0.1 second between requests, max 10 req/s)."""
     global _last_request_time
 
     # Wait if needed to respect rate limit

@@ -21,6 +21,7 @@ class TableChanges:
     new: list[dict] = field(default_factory=list)
     modified: list[dict] = field(default_factory=list)
     deleted: list[str] = field(default_factory=list)
+    metadata: dict = field(default_factory=dict)  # For storing additional data like isotherm data points
 
     @property
     def total_changes(self) -> int:
@@ -121,18 +122,42 @@ def apply_table_changes(
     database.bulk_upsert(changes.table_name, changes.new + changes.modified, db_path)
     database.bulk_delete(changes.table_name, changes.id_column, changes.deleted, db_path)
 
+    # Handle isotherm data points specially
+    if changes.table_name == "isotherms" and "data_points" in changes.metadata:
+        data_points = changes.metadata["data_points"]
+
+        # Delete old data points for modified/new isotherms
+        for record in changes.new + changes.modified:
+            database.delete_isotherm_data_points(record["filename"], db_path)
+
+        # Delete data points for deleted isotherms
+        for filename in changes.deleted:
+            database.delete_isotherm_data_points(filename, db_path)
+
+        # Insert new data points
+        if data_points:
+            database.bulk_upsert("isotherm_data_points", data_points, db_path)
+            print(f"    Inserted {len(data_points):,} data points")
+
 
 def sync_table(
     table: str,
     id_column: str,
-    fetch_func: Callable[[], list[dict]],
+    fetch_func: Callable,
     db_path: Path,
     force: bool = False,
 ) -> tuple[TableChanges, Optional[str]]:
     """Sync a single table from NIST API."""
     print(f"\nFetching {table}...")
-    records = fetch_func()
-    print(f"  Fetched {len(records)} {table}")
+
+    # Special handling for isotherms (returns tuple of metadata and data points)
+    if table == "isotherms":
+        records, data_points = fetch_func()
+        print(f"  Fetched {len(records)} {table} with {len(data_points):,} data points")
+    else:
+        records = fetch_func()
+        print(f"  Fetched {len(records)} {table}")
+        data_points = None
 
     changes = detect_table_changes(records, table, id_column, db_path)
     print(f"  Changes: {len(changes.new)} new, {len(changes.modified)} modified, {len(changes.deleted)} deleted")
@@ -143,6 +168,10 @@ def sync_table(
 
     if warning and not force:
         return changes, warning
+
+    # Store data points for later insertion (isotherms only)
+    if data_points is not None:
+        changes.metadata["data_points"] = data_points
 
     return changes, None
 
