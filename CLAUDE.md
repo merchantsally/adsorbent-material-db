@@ -15,7 +15,7 @@ This project maintains a **searchable, normalized database** of adsorbent materi
 - **Analysis Views**: Pre-computed material comparisons and performance rankings
 - **Unit Normalization**: Automatic conversion to mol/kg (adsorption) and Pa (pressure)
 
-**The scraper runs weekly to sync with NIST's updates. Views are refreshed after each sync.**
+**The scraper runs monthly to sync with NIST's updates. Views are refreshed after each sync.**
 
 ## NIST ISODB Data Source
 

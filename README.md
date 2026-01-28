@@ -4,7 +4,7 @@ A searchable, normalized database of adsorbent materials with automated data syn
 
 ## Features
 
-- **🔄 Automated Sync**: Weekly synchronization with NIST ISODB (39,800+ isotherms)
+- **🔄 Automated Sync**: Monthly synchronization with NIST ISODB (39,800+ isotherms)
 - **📊 Material Registry**: 9,300+ adsorbent materials (MOFs, zeolites, carbons, etc.)
 - **🧪 Gas Library**: 455 adsorbate molecules with InChIKey identifiers
 - **📈 Analysis Views**: Pre-computed material comparisons and performance rankings
