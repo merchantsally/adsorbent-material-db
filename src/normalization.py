@@ -138,7 +138,7 @@ def create_normalized_views(db_path: Path = database.DEFAULT_DB_PATH) -> None:
         WHERE i.pressure_units IS NOT NULL
             AND i.adsorption_units IS NOT NULL
             AND i.adsorption_units NOT LIKE '%/m%'  -- Exclude area-based units
-            AND dp.species_data IS NULL OR dp.species_data = '[]'  -- Pure components only
+            AND json_array_length(i.adsorbates) = 1  -- Pure components only (single adsorbate)
     """)
 
     print("  ✓ Created isotherm_data_points_normalized")
@@ -175,9 +175,8 @@ def create_normalized_views(db_path: Path = database.DEFAULT_DB_PATH) -> None:
 
         FROM isotherm_data_points_normalized n
         JOIN materials m ON n.adsorbent_id = m.material_id
-        JOIN isotherms i ON n.isotherm_filename = i.filename
         -- Iterate through all adsorbates in the JSON array
-        CROSS JOIN json_each(i.adsorbates) AS adsorbate_array
+        CROSS JOIN json_each(n.adsorbates) AS adsorbate_array
         JOIN gases g ON g.inchikey = adsorbate_array.value
 
         WHERE n.adsorption_mol_per_kg IS NOT NULL
@@ -280,9 +279,8 @@ def create_gas_material_matrix(db_path: Path = database.DEFAULT_DB_PATH) -> None
 
         FROM isotherm_data_points_normalized n
         JOIN materials m ON n.adsorbent_id = m.material_id
-        JOIN isotherms i ON n.isotherm_filename = i.filename
         -- Iterate through all adsorbates in the JSON array
-        CROSS JOIN json_each(i.adsorbates) AS adsorbate_array
+        CROSS JOIN json_each(n.adsorbates) AS adsorbate_array
         JOIN gases g ON g.inchikey = adsorbate_array.value
 
         WHERE n.adsorption_mol_per_kg IS NOT NULL
