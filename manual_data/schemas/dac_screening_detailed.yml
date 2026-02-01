@@ -1,0 +1,263 @@
+schema_name: DAC_adsorbent_screening_schema
+schema_version: v2.2
+table_name: manual_dac_screening_detailed
+description: >
+  Detailed DAC (Direct Air Capture) adsorbent screening data with 50+ metrics
+  including CO2 capacity, working capacity, regeneration energy, kinetics,
+  and techno-economic parameters for material evaluation.
+record_granularity: one row = one material + one tested form factor + one defined cycle/test context
+notes_convention:
+  rule: Any numeric column MUST contain numbers only. If notes/context are needed, add a separate sibling column
+    named '<column_name>_notes' as free text.
+  applies_to: all numeric columns (and enums if clarification is needed)
+  examples:
+  - base_column: qCO2_400ppm_25C_RH50_mmol_g
+    notes_column: qCO2_400ppm_25C_RH50_mmol_g_notes
+  - base_column: Air_side_pressure_drop_ref_Pa_per_m
+    notes_column: Air_side_pressure_drop_ref_Pa_per_m_notes
+columns:
+- name: material_id
+  definition: Unique identifier for the material (internal ID, database key, or canonical ID used across datasets).
+  format: string
+  examples:
+  - NIST-MATDB-xxxx
+  - INT-MAT-000123
+  notes: Optional; may be blank in early screening tables.
+- name: material_name
+  definition: Human-readable material name (as commonly used in literature or internal naming).
+  format: string
+  examples:
+  - Lewatit VP OC 1065
+  - mmen-Mg2(dobpdc)
+- name: material_name_notes
+  definition: Free-text notes to clarify naming, aliases, or composition details for material_name.
+  format: string
+- name: Active_site_type_capture_mechanism
+  definition: Dominant active site + capture mechanism classification under DAC-relevant conditions.
+  format: enum
+  allowed_values:
+  - solid_amine_chemisorption
+  - carbonate_hydroxide_chemisorption
+  - open_metal_site_physisorption
+  - zeolite_electrostatic_physisorption
+  - step_cooperative_adsorption
+  - mixed_mode
+  - other
+  notes: If 'other' or 'mixed_mode', clarify in Active_site_type_capture_mechanism_notes.
+- name: Active_site_type_capture_mechanism_notes
+  definition: Free-text clarification for Active_site_type_capture_mechanism.
+  format: string
+- name: Form_factor_tested
+  definition: Physical form used in the reported test. This matters for kinetics, pressure drop, and practical implementation.
+  format: enum
+  allowed_values:
+  - powder
+  - pellet
+  - monolith
+  - coating
+  - fiber
+  - other
+  notes: If 'other', specify in Form_factor_tested_notes (e.g., 'structured foam', 'washcoated honeycomb').
+- name: Form_factor_tested_notes
+  definition: Free-text clarification for Form_factor_tested (geometry, particle size, coating description, etc.).
+  format: string
+- name: Data_source_ref
+  definition: DOI of the primary source used for the row's key data (single DOI string).
+  format: string
+  examples:
+  - 10.1016/j.cej.2023.141234
+  - 10.1039/C4TA01174K
+  notes: If multiple sources were used, put the primary DOI here and list additional DOIs/URLs in Data_source_ref_notes.
+- name: Data_source_ref_notes
+  definition: Free-text notes for the data source (full citation, URLs to PDFs/SI, or additional DOIs).
+  format: string
+- name: real_air_validation_level
+  definition: Validation level achieved (program-defined). Used as a confidence multiplier.
+  format: enum
+  allowed_values:
+  - Lab
+  - Bench
+  - Pilot
+  - Field
+- name: real_air_validation_criteria
+  definition: Criteria/details supporting the real_air_validation_level (e.g., gas composition, humidity, cycles, duration).
+  format: string
+- name: qCO2_400ppm_25C_RH50_mmol_g
+  definition: Baseline CO2 uptake at 400 ppm CO2, 25C, RH 50%. Prefer humid air (N2/O2) over dry CO2/N2.
+  format: number
+  units: mmol/g
+- name: qCO2_400ppm_25C_RH50_mmol_g_notes
+  definition: Notes/context for qCO2_400ppm_25C_RH50_mmol_g (basis, method, deviations from stated conditions, etc.).
+  format: string
+- name: CO2_working_capacity_cycle_mmol_g
+  definition: Cycle working capacity delta-q between adsorption and regeneration endpoints for the specified cycle under DAC-relevant humidity. Must be tied to a defined cycle.
+  format: number
+  units: mmol/g
+- name: CO2_working_capacity_cycle_mmol_g_notes
+  definition: Notes specifying adsorption/regeneration endpoints, conditions, and basis (measured vs calculated vs estimated).
+  format: string
+- name: Full_cycle_time_min
+  definition: Total cycle duration (adsorption + desorption + transitions). Used to compute productivities.
+  format: number
+  units: min
+- name: Full_cycle_time_min_notes
+  definition: Notes clarifying cycle step times and endpoint definitions.
+  format: string
+- name: Sorbent_productivity_grav_kgCO2_per_kg_per_day
+  definition: Gravimetric productivity based on working capacity and cycle time (or measured mass balance). Indicates throughput per sorbent mass.
+  format: number
+  units: kg CO2 / kg sorbent / day
+- name: Sorbent_productivity_grav_kgCO2_per_kg_per_day_notes
+  definition: Notes clarifying calculation basis, assumptions, or if measured directly.
+  format: string
+- name: Sorbent_productivity_grav_kgCO2_per_kg_per_day_type
+  definition: How the gravimetric productivity value was obtained.
+  format: enum
+  allowed_values:
+  - simulated
+  - calculated
+  - measured
+- name: t90_adsorption_400ppm_RH50_min
+  definition: Time to reach 90% of the defined adsorption endpoint under 400 ppm, 25C, RH50.
+  format: number
+  units: min
+- name: t90_adsorption_400ppm_RH50_min_notes
+  definition: Notes for t90_adsorption_400ppm_RH50_min (measurement method, endpoint definition, etc.).
+  format: string
+- name: t90_desorption_regen_min
+  definition: Time to reach 90% of the defined regeneration endpoint under the stated regeneration conditions.
+  format: number
+  units: min
+- name: t90_desorption_regen_min_notes
+  definition: Notes for t90_desorption_regen_min (endpoint definition, regen conditions, method).
+  format: string
+- name: Humidity_penalty_RH70_pct
+  definition: Percent change (drop) in capacity or working capacity at RH70 relative to RH50 at the same T and CO2 ppm.
+  format: number
+  units: '%'
+- name: Humidity_penalty_RH70_pct_notes
+  definition: Notes clarifying whether penalty is on q or delta-q, and any deviations from RH70/RH50 definition.
+  format: string
+- name: Temperature_penalty_0C_pct
+  definition: Percent change in performance at 0C relative to 25C (at 400 ppm CO2; preferably RH50).
+  format: number
+  units: '%'
+- name: Temperature_penalty_0C_pct_notes
+  definition: Notes clarifying whether penalty is on q or delta-q, and any deviations from the definition.
+  format: string
+- name: Pre_drying_required
+  definition: Whether an upstream pre-drying step (or equivalent humidity management) is required for acceptable performance/stability.
+  format: enum
+  allowed_values:
+  - Y
+  - N
+- name: Required_RH_threshold
+  definition: If pre-drying is required, the RH threshold above which performance becomes unacceptable.
+  format: number
+  units: '%RH'
+  examples:
+  - 60
+  - 50
+  - 70
+  notes: If unknown, leave blank (null). Do not write 'unknown'.
+- name: Lowest_regen_energy_total_scoped_MJ_per_kgCO2
+  definition: Lowest reported total regeneration energy (scoped) across available assumptions for this material/cycle, expressed in MJ/kg CO2.
+  format: number
+  units: MJ/kg CO2
+- name: Lowest_regen_energy_total_scoped_MJ_per_kgCO2_notes
+  definition: Notes describing scope (thermal/electric/vacuum/water/fan/compression) and heat-recovery assumptions.
+  format: string
+- name: Regen_temperature_C
+  definition: Regeneration temperature required by the process.
+  format: number
+  units: C
+- name: Regen_temperature_C_notes
+  definition: Notes clarifying peak vs setpoint, ramps/holds, purge/vacuum conditions, etc.
+  format: string
+- name: Regen_mode
+  definition: Regeneration/process architecture used or assumed.
+  format: enum
+  allowed_values:
+  - TSA
+  - VSA
+  - TVSA
+  - ESA
+  - steam
+  - hybrid
+  - other
+  notes: If 'hybrid/other', clarify in Regen_mode_notes.
+- name: Regen_mode_notes
+  definition: Free-text clarification for Regen_mode.
+  format: string
+- name: Air_side_pressure_drop_ref_Pa_per_m
+  definition: Air-side pressure drop per meter of bed/structure at a stated reference face velocity and geometry.
+  format: number
+  units: Pa/m
+- name: Air_side_pressure_drop_ref_Pa_per_m_notes
+  definition: Notes stating v_ref (m/s) and geometry (packed bed/monolith; particle/channel size).
+  format: string
+- name: Recommended_face_velocity_m_per_s
+  definition: Recommended or tested face velocity (superficial velocity) for acceptable mass transfer vs pressure drop tradeoff.
+  format: number
+  units: m/s
+- name: Recommended_face_velocity_m_per_s_notes
+  definition: Notes clarifying conversions (e.g., from GHSV) and geometry.
+  format: string
+- name: Estimated_sorbent_cost_usd_per_kg
+  definition: Estimated sorbent cost per kg (single numeric value).
+  format: number
+  units: USD/kg
+- name: Estimated_sorbent_cost_usd_per_kg_notes
+  definition: Notes describing assumptions, scale (lab vs commercial), and methodology.
+  format: string
+- name: manufacturing_maturity
+  definition: Manufacturing/scale maturity of sorbent production.
+  format: enum
+  allowed_values:
+  - Lab
+  - Pilot
+  - Demo
+  - Commercial
+- name: manufacturing_maturity_notes
+  definition: Notes clarifying maturity (e.g., lab synthesis but commercial precursor supply).
+  format: string
+- name: manufacturing_complexity
+  definition: Synthesis/manufacturing complexity score (1-5).
+  format: number
+  units: 1-5
+  complexity_scale_definition:
+    1: simple, commodity steps; robust
+    2: few steps; moderate control
+    3: moderate multi-step; some sensitivity
+    4: complex; tight tolerances or low yields
+    5: very complex; specialized equipment/air-sensitive/multi-stage purification
+- name: manufacturing_complexity_notes
+  definition: Notes/justification for manufacturing_complexity score.
+  format: string
+- name: supply_chain_risk_LMH
+  definition: Overall supply chain risk for scaling this sorbent (precursors, vendors, geopolitics, lead times).
+  format: enum
+  allowed_values:
+  - L
+  - M
+  - H
+- name: IP_FTO_status
+  definition: Freedom-to-operate (FTO) status assessment for commercialization.
+  format: enum
+  allowed_values:
+  - Clear
+  - Encumbered
+  - Unknown
+- name: Metric_confidence
+  definition: Overall confidence in the record's key metrics, considering validation level, comparability, and scope clarity.
+  format: enum
+  allowed_values:
+  - High
+  - Med
+  - Low
+- name: Metric_confidence_notes
+  definition: Free-text rationale for Metric_confidence.
+  format: string
+instructions:
+  table_build_rule: Use the columns list exactly; leave cells blank (null) when data are unavailable or not confidently sourced.
+  notes_rule: Add '<column>_notes' columns whenever additional context is needed; numeric columns must remain numeric-only.

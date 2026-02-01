@@ -58,6 +58,54 @@ python main.py status
 - **`material_isotherms`** - Material-centric isotherm aggregation
 - **`gas_material_matrix`** - Pre-computed performance matrix (materialized table)
 
+### Manual Data Tables (DAC Screening)
+
+- **`manual_dac_screening_score`** - DAC potential scores (0-100) for materials
+- **`manual_dac_screening_detailed`** - Comprehensive DAC screening metrics (50+ columns)
+- **`manual_adsorbent_families`** - Adsorbent family definitions (Zeolites, MOFs, etc.)
+- **`manual_family_categorization`** - Material-to-family mapping
+
+### DAC Discovery Views
+
+- **`max_adsorption_dac_conditions`** - NIST CO2 adsorption at DAC conditions (290-300K, 0.8-1.05 bar)
+- **`dac_adsorbent_discovery`** - Unified view combining NIST data with manual DAC screening
+- **`materials_by_family`** - Family-level statistics and DAC score aggregates
+
+## DAC Adsorbent Discovery
+
+The `dac_adsorbent_discovery` view combines NIST isotherm data with manually curated DAC (Direct Air Capture) screening metrics for comprehensive material evaluation.
+
+### Find Top DAC Candidates
+
+```sql
+SELECT material_name, family_name, DAC_potential_score,
+       dac_capacity_mol_per_kg, capture_mechanism
+FROM dac_adsorbent_discovery
+WHERE DAC_potential_score >= 70
+ORDER BY DAC_potential_score DESC
+LIMIT 20;
+```
+
+### Compare DAC Performance by Family
+
+```sql
+SELECT family_name, core_capture_mode,
+       material_count, avg_dac_score, max_dac_score
+FROM materials_by_family
+WHERE avg_dac_score IS NOT NULL
+ORDER BY avg_dac_score DESC;
+```
+
+### Find Materials with Both NIST and DAC Data
+
+```sql
+SELECT material_name, DAC_potential_score,
+       dac_capacity_mol_per_kg, NIST_max_adsorption_mol_per_kg_dac
+FROM dac_adsorbent_discovery
+WHERE has_dac_score = 1 AND has_nist_dac_data = 1
+ORDER BY DAC_potential_score DESC;
+```
+
 ## Example Queries
 
 ### Find Best CO₂ Adsorbent at Room Temperature
@@ -147,17 +195,45 @@ python main.py refresh-matrix
 python main.py normalization-status
 ```
 
+### Manual Data & DAC Discovery
+
+```bash
+# Load manual data (DAC screening, family categorization)
+python main.py load-manual-data
+
+# Preview without applying changes
+python main.py load-manual-data --dry-run
+
+# Check manual data status
+python main.py manual-data-status
+
+# Create DAC discovery views
+python main.py create-dac-views
+```
+
 ## Project Structure
 
 ```
 NISTScraper/
 ├── data/
 │   └── materials.db          # SQLite database
+├── manual_data/
+│   ├── schemas/              # YAML schema definitions
+│   │   ├── dac_screening_detailed.yml
+│   │   ├── dac_screening_score.yml
+│   │   ├── adsorbent_families.yml
+│   │   └── family_categorization.yml
+│   └── data/                 # CSV data files
+│       ├── dac_screening_detailed.csv
+│       ├── dac_screening_score.csv
+│       ├── adsorbent_families.csv
+│       └── family_categorization.csv
 ├── src/
 │   ├── database.py           # Database operations
 │   ├── scraper.py            # NIST API client
 │   ├── sync.py               # Synchronization engine
 │   ├── normalization.py      # Unit conversion & views
+│   ├── manual_data.py        # Manual data loading & DAC views
 │   └── utils.py              # Utility functions
 ├── main.py                   # CLI interface
 ├── README.md                 # This file

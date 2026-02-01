@@ -1,0 +1,108 @@
+schema_name: family_categorization
+schema_version: "1.0"
+table_name: manual_family_categorization
+description: >
+  Mapping of NIST ISODB materials to adsorbent families with confidence levels
+  and categorization basis. Enables filtering and analysis by material family type.
+
+columns:
+- name: material_id
+  definition: NIST ISODB material identifier linking to the materials table.
+  format: string
+  required: true
+  foreign_key: materials.material_id
+  examples:
+  - NIST-MATDB-cf456ceb20be181c82372f598ccd6566
+  - NIST-MATDB-b2cbe7a27aa1570f2ff2c04b82289f25
+
+- name: material_name
+  definition: Material name (denormalized from materials table for convenience).
+  format: string
+  required: true
+  examples:
+  - COF-102
+  - Activated Carbon
+  - UiO-66/GO-1
+
+- name: family_id
+  definition: Reference to the adsorbent family in manual_adsorbent_families table.
+  format: integer
+  required: true
+  foreign_key: manual_adsorbent_families.id
+  examples:
+  - 2
+  - 4
+  - 5
+
+- name: family_name
+  definition: Family name (denormalized for convenience in queries).
+  format: string
+  required: true
+  examples:
+  - Porous carbons
+  - MOFs
+  - COFs
+
+- name: recat_basis
+  definition: Basis or reason for the categorization/recategorization decision.
+  format: string
+  required: false
+  examples:
+  - "COF marker or prior family"
+  - "carbon grade/sample/code (activated carbon/CMS/carbon composite)"
+  - "MOF/coordination marker or prior family"
+  - "polymer/HOF/SOF marker or prior family"
+
+- name: family
+  definition: More detailed family classification within the broader family_name.
+  format: string
+  required: false
+  examples:
+  - "Carbon-based"
+  - "COF (covalent organic framework)"
+  - "Composite / functionalized (MOF / coordination framework + Carbon-based)"
+
+- name: subtype
+  definition: Specific subcategory or variant within the family.
+  format: string
+  required: false
+  examples:
+  - Activated carbon
+  - Carbon molecular sieve (CMS)
+  - Graphene oxide / graphite oxide
+  - HKUST-1 / Cu-BTC family
+  - MIL (Materials of Institute Lavoisier)
+
+- name: confidence
+  definition: Confidence level in the categorization assignment.
+  format: string
+  required: false
+  allowed_values:
+  - high
+  - medium
+  - low
+  notes: >
+    'high' indicates strong evidence from naming conventions, known structures, or literature.
+    'medium' indicates reasonable inference but some ambiguity.
+    'low' indicates best-guess categorization requiring verification.
+
+- name: notes
+  definition: Additional notes about the categorization reasoning or special cases.
+  format: string
+  required: false
+  examples:
+  - "contains COF"
+  - "bracketed complex or formula; carbon keyword / activated carbon code"
+  - "MOF keyword/series name; contains mesoporous silica keyword"
+
+instructions:
+  categorization_rules: >
+    Materials are categorized based on: (1) explicit naming conventions (MOF, ZIF, COF, etc.),
+    (2) chemical formula patterns, (3) known material databases, (4) literature references.
+  composite_handling: >
+    Composite materials (e.g., MOF@Carbon, MOF/Silica hybrids) are assigned to the
+    family of the primary functional component, with the composite nature noted in
+    the 'family' and 'subtype' fields.
+  updates: >
+    Categorizations may be updated as new information becomes available.
+    The 'confidence' field should be updated to reflect improved certainty.

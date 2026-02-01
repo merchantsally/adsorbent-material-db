@@ -1,0 +1,66 @@
+schema_name: adsorbent_families
+schema_version: "1.0"
+table_name: manual_adsorbent_families
+description: >
+  Definition of major adsorbent material families and their core CO2 capture
+  mechanisms. Used as a lookup table for categorizing materials in the database.
+
+columns:
+- name: id
+  definition: Unique integer identifier for the adsorbent family.
+  format: integer
+  primary_key: true
+  required: true
+  examples:
+  - 1
+  - 4
+  - 7
+
+- name: family_name
+  definition: Name of the adsorbent family category.
+  format: string
+  required: true
+  unique: true
+  examples:
+  - Zeolites
+  - MOFs
+  - Porous carbons
+  - Solid amines
+  - COFs
+
+- name: inclusion
+  definition: Criteria describing what types of materials belong to this family.
+  format: string
+  required: false
+  examples:
+  - "Zeolites + zeotypes (e.g., 13X, 5A, cation-exchanged zeolites)"
+  - "Metal-organic frameworks / porous coordination polymers"
+  - "Amine-impregnated, amine-grafted, amine resins (ion-exchange style)"
+
+- name: core_capture_mode
+  definition: Primary mechanism for CO2 capture used by materials in this family.
+  format: string
+  required: false
+  allowed_values:
+  - Physisorption
+  - Chemisorption
+  - Physisorption (electrostatic)
+  - Physisorption (tunable sites)
+  - Mostly physisorption
+  - Mostly physisorption (functionalizable)
+  - Mostly physisorption / tailored interactions
+  - Strong adsorption / chemisorption
+  - Chemisorption (high-T looping)
+  - N/A (not a sorbent)
+  examples:
+  - "Physisorption (electrostatic)"
+  - "Chemisorption"
+  - "Mostly physisorption (tunable sites)"
+
+instructions:
+  usage: >
+    This table serves as a lookup/reference for the family_categorization table.
+    Each material in family_categorization references a family_id from this table.
+  extensibility: >
+    New families can be added as needed. Ensure the core_capture_mode accurately
+    reflects the dominant CO2 binding mechanism for the family.

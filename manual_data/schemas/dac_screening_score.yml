@@ -1,0 +1,78 @@
+schema_name: DAC_screening_score
+schema_version: "1.0"
+table_name: manual_dac_screening_score
+description: >
+  Quick-reference DAC potential scores (0-100) for adsorbent materials based on
+  literature review and expert assessment. Higher scores indicate better
+  suitability for Direct Air Capture applications.
+
+columns:
+- name: material_id
+  definition: NIST ISODB material identifier (hashKey). Links to NIST materials table for cross-referencing.
+  format: string
+  primary_key: true
+  foreign_key: materials.material_id
+  required: true
+  examples:
+  - NIST-MATDB-7d1571382dd79cf21cfb21568cdc0ccf
+  - NIST-MATDB-f5e80ffaaaf05f4ed655664fd22defb9
+
+- name: material_name
+  definition: Human-readable material name as commonly used in literature.
+  format: string
+  required: true
+  examples:
+  - CAU-1
+  - Mg-MOF-74
+  - ZIF-8
+  - Zeolite 13X
+
+- name: DAC_potential_score
+  definition: Composite score indicating suitability for DAC applications. Higher is better.
+  format: number
+  units: dimensionless (0-100 scale)
+  required: true
+  allowed_values:
+    min: 0
+    max: 100
+  notes: >
+    Score based on CO2 capacity at ambient conditions (400 ppm, ~25C),
+    regeneration energy, kinetics, humidity tolerance, stability, and cost factors.
+
+- name: quick_rationale
+  definition: Brief explanation of the score assignment summarizing key strengths and weaknesses.
+  format: string
+  required: false
+  examples:
+  - "High CO2 capacity at 400ppm, low regeneration temperature; synthesis scalable but pelletization needed."
+  - "Hydrophobic and chemically robust; intrinsic CO2 affinity at 400 ppm is limited."
+
+- name: source_1
+  definition: Primary literature source URL or DOI supporting the assessment.
+  format: string
+  required: false
+  examples:
+  - "https://pubs.rsc.org/en/content/articlelanding/2011/ee/c1ee01380g"
+  - "10.1021/acs.iecr.4c03265"
+
+- name: source_2
+  definition: Secondary literature source URL or DOI.
+  format: string
+  required: false
+
+- name: source_3
+  definition: Tertiary literature source URL or DOI.
+  format: string
+  required: false
+
+instructions:
+  scoring_criteria: >
+    DAC potential score considers: (1) CO2 working capacity at 400 ppm ambient conditions,
+    (2) humidity tolerance/water stability, (3) regeneration energy and temperature,
+    (4) kinetics (adsorption/desorption rates), (5) cycling stability, and
+    (6) manufacturing scalability and cost.
+  interpretation: >
+    70-100: High potential - strong candidates for further DAC development
+    50-69: Moderate potential - promising but with significant limitations
+    30-49: Low potential - major barriers to practical DAC use
+    0-29: Minimal potential - not suitable for DAC applications

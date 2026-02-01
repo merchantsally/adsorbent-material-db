@@ -232,6 +232,101 @@ def cmd_normalization_status(args):
     return 0
 
 
+# =============================================================================
+# Manual Data Commands
+# =============================================================================
+
+def cmd_load_manual_data(args):
+    """Load manual data from CSV files into database."""
+    from src.manual_data import load_all_manual_data, MANUAL_DATA_DIR
+
+    db_path = database.DEFAULT_DB_PATH
+
+    if not db_path.exists():
+        print("Database not found. Run 'sync' first.", file=sys.stderr)
+        return 1
+
+    if not MANUAL_DATA_DIR.exists():
+        print(f"Manual data directory not found: {MANUAL_DATA_DIR}", file=sys.stderr)
+        return 1
+
+    print(f"\n{'='*60}")
+    print("LOADING MANUAL DATA")
+    print(f"{'='*60}")
+
+    result = load_all_manual_data(
+        db_path=db_path,
+        data_dir=MANUAL_DATA_DIR,
+        dry_run=args.dry_run,
+    )
+
+    print(f"\n{'='*60}")
+    if args.dry_run:
+        print(f"[DRY RUN] Would load {result['total_records']:,} records across {result['tables_loaded']} tables")
+    else:
+        print(f"Loaded {result['total_records']:,} records across {result['tables_loaded']} tables")
+    print(f"{'='*60}")
+
+    return 0
+
+
+def cmd_manual_data_status(args):
+    """Show status of manual data tables."""
+    from src.manual_data import get_manual_data_status
+
+    db_path = database.DEFAULT_DB_PATH
+
+    if not db_path.exists():
+        print("Database not initialized.", file=sys.stderr)
+        return 1
+
+    status = get_manual_data_status(db_path)
+
+    print(f"\n{'='*60}")
+    print("MANUAL DATA STATUS")
+    print(f"{'='*60}")
+
+    for table, info in status.items():
+        if table == "views":
+            continue
+        print(f"\n{table}")
+        if "error" in info:
+            print(f"  Status: {info['error']}")
+        else:
+            print(f"  Records: {info['count']:,}")
+            print(f"  Last updated: {info['last_updated'] or 'Never'}")
+            if info.get('linked_to_nist') is not None:
+                print(f"  Linked to NIST materials: {info['linked_to_nist']:,}")
+
+    if "views" in status:
+        print(f"\nDAC Discovery Views:")
+        if "error" in status["views"]:
+            print(f"  Status: {status['views']['error']}")
+        else:
+            if "dac_adsorbent_discovery" in status["views"]:
+                dac = status["views"]["dac_adsorbent_discovery"]
+                print(f"  Materials with DAC score: {dac['materials_with_score']:,}")
+                print(f"  Materials with detailed screening: {dac['materials_with_detailed']:,}")
+                print(f"  Materials with NIST DAC data: {dac['materials_with_nist_dac']:,}")
+
+    print(f"\n{'='*60}")
+    return 0
+
+
+def cmd_create_dac_views(args):
+    """Create DAC adsorbent discovery views."""
+    from src.manual_data import create_dac_views
+
+    db_path = database.DEFAULT_DB_PATH
+
+    if not db_path.exists():
+        print("Database not found. Run 'sync' first.", file=sys.stderr)
+        return 1
+
+    create_dac_views(db_path)
+    return 0
+
+
 def main():
     parser = argparse.ArgumentParser(
         description="NIST ISODB Adsorbent Materials Scraper",
@@ -340,6 +435,32 @@ def main():
         help="Show normalization and view statistics"
     )
     norm_status_parser.set_defaults(func=cmd_normalization_status)
+
+    # load-manual-data command
+    load_manual_parser = subparsers.add_parser(
+        "load-manual-data",
+        help="Load manual data from CSV files into database"
+    )
+    load_manual_parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Show what would be loaded without applying"
+    )
+    load_manual_parser.set_defaults(func=cmd_load_manual_data)
+
+    # manual-data-status command
+    manual_status_parser = subparsers.add_parser(
+        "manual-data-status",
+        help="Show status of manual data tables"
+    )
+    manual_status_parser.set_defaults(func=cmd_manual_data_status)
+
+    # create-dac-views command
+    dac_views_parser = subparsers.add_parser(
+        "create-dac-views",
+        help="Create DAC adsorbent discovery views"
+    )
+    dac_views_parser.set_defaults(func=cmd_create_dac_views)
 
     args = parser.parse_args()
 

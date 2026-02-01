@@ -1,0 +1,12 @@
+Id,family_name,inclusion,core_capture_mode
+1,Zeolites,"Zeolites + zeotypes (e.g., 13X, 5A, cation-exchanged zeolites)",Physisorption (electrostatic)
+2,Porous carbons,"Activated carbon, carbon molecular sieves, templated carbons",Physisorption
+3,Porous oxides,"Silica, alumina, other porous inorganic oxides (often supports)",Mostly physisorption
+4,MOFs,Metal–organic frameworks / porous coordination polymers,Mostly physisorption (tunable sites)
+5,COFs,Covalent organic frameworks,Mostly physisorption (functionalizable)
+6,Porous polymers,"POPs/POFs: HCPs, CMPs, CTFs, PIMs, cages",Mostly physisorption / tailored interactions
+7,Solid amines,"Amine-impregnated, amine-grafted, amine resins (ion-exchange style)",Chemisorption
+8,Carbonates (alkali),"Na/K carbonates/bicarbonates, carbonate-on-support composites",Chemisorption
+9,Oxide loopers,"CaO looping, MgO/Mg(OH)₂, Li-oxide systems (process-specific)",Chemisorption (high-T looping)
+10,LDHs & mixed oxides,"Hydrotalcites/LDHs, doped oxides with strong CO₂ affinity",Strong adsorption / chemisorption
+11,Solvents,"Solvent / solvation condition labels (e.g., sDMF120, sH2O)",N/A (not a sorbent)
